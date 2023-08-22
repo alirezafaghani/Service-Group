@@ -1,0 +1,39 @@
+  public class WF_CreateCustomerServiceGroup : CodeActivity
+    {
+        [Input("customerService")]
+        [ReferenceTarget("customerservice")]
+        public InArgument<EntityReference> customerService { get; set; }
+        [Input("systemUser")]
+        [ReferenceTarget("systemuser")]
+        public InArgument<EntityReference> systemUser { get; set; }
+        [Output("HasError")]
+        public OutArgument<bool> hasError { get; set; }
+
+        [Output("Message")]
+        public OutArgument<string> message { get; set; }
+
+        protected override void Execute(CodeActivityContext context)
+        {
+            IWorkflowContext workflowContext = context.GetExtension<IWorkflowContext>();
+            IOrganizationServiceFactory organizationServiceFactory = context.GetExtension<IOrganizationServiceFactory>();
+            OrganizationServiceProxy orgService = (OrganizationServiceProxy)organizationServiceFactory.CreateOrganizationService(workflowContext.InitiatingUserId);
+
+
+            EntityReference CustomerService = context.GetValue(customerService);
+            EntityReference SystemUser = context.GetValue(systemUser);
+            CustomerServiceGroup CreateCustomerServiceGroup = new CustomerServiceGroup(orgService);
+            ResultInfo resultInfo = CreateCustomerServiceGroup.CreateCustomerServiceGroup(SystemUser,CustomerService);
+
+            if (resultInfo.ResultStatus != ResultStatus.Success)
+            {
+                context.SetValue(hasError, true);            
+                context.SetValue(message, resultInfo.Message);
+            }
+            else
+            {
+                context.SetValue(hasError, false);
+                context.SetValue(message, "");
+            }
+        }
+    }
+}
