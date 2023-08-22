@@ -1,0 +1,91 @@
+
+    public class WF_CreateCustomerService : CodeActivity
+    {
+        [Input("Province")]
+        [ReferenceTarget("province")]
+        public InArgument<EntityReference> province { get; set; }
+
+        [Input("Contact")]
+        [ReferenceTarget("contact")]
+        public InArgument<EntityReference> Contact { get; set; }
+
+        [Input("City")]
+        [ReferenceTarget("city")]
+        public InArgument<EntityReference> city { get; set; }
+
+        [Input("TelecomCenter")]
+        [ReferenceTarget("telecomcenter")]
+        public InArgument<EntityReference> telecomCenter { get; set; }
+
+        [Input("FCPProvider")]
+        [ReferenceTarget("fcpprovider")]
+        public InArgument<EntityReference> fcpprovider { get; set; }
+
+        [Input("InfrastructureProvider")]
+        [ReferenceTarget("fcpprovider")]
+        public InArgument<EntityReference> infrastructureProvider { get; set; }
+
+        [Input("PhoneNumber")]
+        public InArgument<string> phoneNumber { get; set; }
+
+        [Output("HasError")]
+        public OutArgument<bool> hasError { get; set; }
+
+        [Output("Message")]
+        public OutArgument<string> message { get; set; }
+
+        [Output("CustomerService")]
+        [ReferenceTarget("customerservice")]
+        public OutArgument<EntityReference> customerService { get; set; }
+
+        protected override void Execute(CodeActivityContext context)
+        {
+            IWorkflowContext workflowContext = context.GetExtension<IWorkflowContext>();
+            IOrganizationServiceFactory organizationServiceFactory = context.GetExtension<IOrganizationServiceFactory>();
+            OrganizationServiceProxy orgService = (OrganizationServiceProxy)organizationServiceFactory.CreateOrganizationService(workflowContext.InitiatingUserId);
+            orgService.CallerId = new System.Guid("867B1D3C-195D-EA11-A94D-005056818579");
+            var ProvinceRef = context.GetValue(province);
+            var CustomerRef = context.GetValue(Contact);
+            var CityRef = context.GetValue(city);
+            var TelecomCenterRef = context.GetValue(telecomCenter);
+            var FCPProviderRef = context.GetValue(fcpprovider);
+            var InfrastructureProviderRef = context.GetValue(infrastructureProvider);
+            var PhoneNumberRef = context.GetValue(phoneNumber);
+            if (ProvinceRef != null && CustomerRef != null && CityRef != null && TelecomCenterRef != null && FCPProviderRef != null && InfrastructureProviderRef != null && PhoneNumberRef != null)
+            {
+                InquiryVM inquiryVM = null;
+
+                inquiryVM.ProvinceId = ProvinceRef.Id;
+                inquiryVM.CsId = CustomerRef.Id;
+                inquiryVM.CityId = CityRef.Id;
+                inquiryVM.VirtualTelecomeCenterId = TelecomCenterRef.Id;
+                inquiryVM.FCPProviderId = FCPProviderRef.Id;
+                inquiryVM.ServiceInfraId = InfrastructureProviderRef.Id;
+                inquiryVM.PhoneNumber = PhoneNumberRef;
+
+                CustomerServiceGroup customerServiceBusiness = new CustomerServiceGroup(orgService);
+                ResultInfo<string> resultInfo = customerServiceBusiness.CreateCustomerService(inquiryVM);
+
+                if (resultInfo.ResultStatus != ResultStatus.Success)
+                {
+                    context.SetValue(hasError, true);
+                    context.SetValue(message, resultInfo.Message);
+                    context.SetValue(customerService, "");
+                }
+                else
+                {
+                    context.SetValue(hasError, false);
+                    context.SetValue(message, "");
+                    context.SetValue(customerService, new EntityReference("customerservice", Guid.Parse(resultInfo.Result)));
+
+                }
+            }
+            else
+            {
+                context.SetValue(hasError, true);
+                context.SetValue(message, "ورودی  نامعتبر است");
+                context.SetValue(customerService, "");
+            }
+        }
+    }
+
