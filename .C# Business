@@ -1,0 +1,415 @@
+
+    public class CustomerServiceGroup
+    {
+        private OrganizationServiceProxy _service;
+        public CustomerServiceGroup(OrganizationServiceProxy service)
+        {
+            this._service = service;
+        }
+        public ResultInfo<CustomerServiceGroupVM> GetGroupFromGroupConfig(Guid systemUserId)
+        {
+
+            try
+            {
+                ///ریتریو کردن یوزر
+                Entity User = _service.Retrieve("systemuser", systemUserId, new ColumnSet("positionid"));
+
+                if (User == null)
+                    return new ResultInfo<CustomerServiceGroupVM> { ResultStatus = ResultStatus.Error, Message = " User اطلاعات یافت نشد " };
+                /// positionid پر کردن متغییر با فیلد
+                if (!(User.Contains("positionid") && User["positionid"] != null))
+                    return new ResultInfo<CustomerServiceGroupVM> { ResultStatus = ResultStatus.Error, Message = "اطلاعات فیلد پوزیشن یوزر ناقص است" };
+
+                Guid positionIdOfUser = ((EntityReference)User["positionid"]).Id;
+
+                ///positionOf_User ریتریو کردن
+                Entity positionOf_User = _service.Retrieve("position", positionIdOfUser, new ColumnSet("new_jobcategory"));
+
+                if (positionOf_User == null)
+                    return new ResultInfo<CustomerServiceGroupVM> { ResultStatus = ResultStatus.Error, Message = " positionOf_User اطلاعات یافت نشد " };
+
+                /// new_jobcategory پر کردن متغییر با فیلد 
+                if (!(positionOf_User.Contains("new_jobcategory") && positionOf_User["new_jobcategory"] != null))
+                    return new ResultInfo<CustomerServiceGroupVM> { ResultStatus = ResultStatus.Error, Message = "اطلاعات فیلد jobcategory ناقص است" };
+
+                int jobcategoryOfPositionEntity = ((OptionSetValue)positionOf_User["new_jobcategory"]).Value;
+                //// Group_Config ریتریو مالتیپل   
+                QueryExpression query = new QueryExpression("groupconfig");
+                query.ColumnSet = new ColumnSet("group", "jobcategory");
+                EntityCollection Group_Config_entityCollection = _service.RetrieveMultiple(query);
+
+                if (Group_Config_entityCollection.Entities.Count == 0)
+                    return new ResultInfo<CustomerServiceGroupVM> { ResultStatus = ResultStatus.Error, Message = " مورد نظر یافت نشده است Group_Config " };
+
+
+                CustomerServiceGroupVM customerServiceGroupVM = null;
+
+                //  Group پیدا کردن   
+                foreach (var item in Group_Config_entityCollection.Entities)
+                {
+                    var result = ((OptionSetValueCollection)item["jobcategory"]).Select(q => q.Value).ToList();
+                    int? selectedItem = result.Where(x => x == jobcategoryOfPositionEntity).FirstOrDefault();
+                    if (selectedItem != null)
+                    {
+                        customerServiceGroupVM = new CustomerServiceGroupVM();
+                        customerServiceGroupVM.Group = ((EntityReference)item["group"]).Id;
+                        customerServiceGroupVM.Group_Name = ((EntityReference)item["group"]).Name;
+                        break;
+                    }
+                }
+
+
+                if (customerServiceGroupVM == null)
+                    return new ResultInfo<CustomerServiceGroupVM> { ResultStatus = ResultStatus.Error, Message = "  گروه مورد نظر یافت نشد " };
+
+
+
+                return new ResultInfo<CustomerServiceGroupVM> { ResultStatus = ResultStatus.Success, Message = "succesfully", Result = customerServiceGroupVM };
+            }
+            catch (Exception ex)
+            {
+                return new ResultInfo<CustomerServiceGroupVM> { ResultStatus = ResultStatus.Error, Message = "Not succesfully: " + ex.ToString() };
+            }
+        }
+        public ResultInfo CreateCustomerServiceGroup(EntityReference systemUser, EntityReference customerService)
+        {
+            try
+            {
+                var resualtGetGroupFromGroupConfig = GetGroupFromGroupConfig(systemUser.Id);
+                if (resualtGetGroupFromGroupConfig.ResultStatus == ResultStatus.Error)
+                    return new ResultInfo { ResultStatus = ResultStatus.Error, Message = resualtGetGroupFromGroupConfig.Message };
+
+                Entity customerServiceGroup_entity = new Entity("customerservicegroup");
+                customerServiceGroup_entity["name"] = resualtGetGroupFromGroupConfig.Result.Group_Name;
+                customerServiceGroup_entity["group"] = new EntityReference("hgroup", resualtGetGroupFromGroupConfig.Result.Group);
+                customerServiceGroup_entity["customerservice"] = new EntityReference("customerservice", customerService.Id);
+                customerServiceGroup_entity["startdatetime"] = DateTime.UtcNow;
+
+                _service.Create(customerServiceGroup_entity);
+
+
+
+                return new ResultInfo { ResultStatus = ResultStatus.Success, Message = "succesfully" };
+            }
+            catch (Exception ex)
+            {
+                return new ResultInfo { ResultStatus = ResultStatus.Error, Message = "Not succesfully: " + ex.ToString() };
+            }
+        }
+
+        public ResultInfo AvoidCreatingDuplicateConfigGroups(Guid new_GroupCanfig)
+        {
+            try
+            {
+                Entity GroupCanfig_entity = _service.Retrieve("groupconfig", new_GroupCanfig, new ColumnSet("jobcategory"));
+                if (GroupCanfig_entity == null)
+                    return new ResultInfo { ResultStatus = ResultStatus.Error, Message = " GroupCanfig_entity اطلاعات یافت نشد " };
+
+                //jobcategory پر کردن متغییر با فیلد
+                if (!(GroupCanfig_entity.Contains("jobcategory") && GroupCanfig_entity["jobcategory"] != null))
+                    return new ResultInfo { ResultStatus = ResultStatus.Error, Message = "اطلاعات فیلد jobcategory ناقص است" };
+
+                OptionSetValueCollection multiselect = (OptionSetValueCollection)GroupCanfig_entity["jobcategory"];
+
+                // تکراری  jobcategory چک کردن  
+                foreach (var option in multiselect)
+                {
+                    int jobcategoryOfGroupCanfigEntity = option.Value;
+
+                    QueryExpression query = new QueryExpression("groupconfig");
+                    query.ColumnSet = new ColumnSet("jobcategory");
+                    EntityCollection GroupCanfig_entityCollection = _service.RetrieveMultiple(query);
+
+                    if (GroupCanfig_entityCollection != null && GroupCanfig_entityCollection.Entities != null)
+                        foreach (Entity entity in GroupCanfig_entityCollection.Entities)
+                            // چک کردن برابر نبودن آیدی رکورد ها
+                            if (entity.Id != GroupCanfig_entity.Id)
+                                if (entity.Contains("jobcategory") && entity["jobcategory"] != null)
+                                {
+                                    // jobcategory  چک کردن برابر نبودن  
+                                    var result = ((OptionSetValueCollection)entity["jobcategory"]).Select(q => q.Value).ToList();
+                                    int? selectedItem = result.Where(x => x == jobcategoryOfGroupCanfigEntity).FirstOrDefault();
+                                    if (selectedItem != 0)
+                                        return new ResultInfo() { ResultStatus = ResultStatus.Error, Message = " وجود دارد jobcategory رکوردی با همین  " };
+                                }
+                }
+                return new ResultInfo { ResultStatus = ResultStatus.Success, Message = "ساخت groupCanfig با موفقیت انجام شد" };
+            }
+            catch (Exception ex)
+            {
+                return new ResultInfo { ResultStatus = ResultStatus.Error, Message = "Not succesfully: " + ex.ToString() };
+            }
+
+        }
+        public ResultInfo PersonalCustomerServiceProduct(Guid CustomerServiceProductID)
+        {
+            try
+            {
+
+                // customerserviceproduct  ریتریو کردن 
+                Entity CustomerServiceProduct_entity = _service.Retrieve("customerserviceproduct", CustomerServiceProductID, new ColumnSet("promotionproduct", "customerservice"));
+                if (CustomerServiceProduct_entity == null)
+                    return new ResultInfo { ResultStatus = ResultStatus.Error, Message = " CustomerServiceProduct_entity اطلاعات یافت نشد " };
+
+
+                if (!(CustomerServiceProduct_entity.Contains("promotionproduct") && CustomerServiceProduct_entity["promotionproduct"] != null))
+                    return new ResultInfo { ResultStatus = ResultStatus.Success, Message = "اطلاعات فیلد promotionproduct ناقص است" };
+
+                if (!(CustomerServiceProduct_entity.Contains("customerservice") && CustomerServiceProduct_entity["customerservice"] != null))
+                    return new ResultInfo { ResultStatus = ResultStatus.Error, Message = "اطلاعات فیلد customerservice ناقص است" };
+                /// promotionproductID پر کردن متغییر با فیلد
+                Guid promotionproductID = ((EntityReference)CustomerServiceProduct_entity["promotionproduct"]).Id;
+
+
+
+                // promotionproduct  ریتریو کردن 
+                Entity promotionproduct_entity = _service.Retrieve("promotionproduct", promotionproductID, new ColumnSet("promotionconfig"));
+                if (promotionproduct_entity == null)
+                    return new ResultInfo { ResultStatus = ResultStatus.Error, Message = " promotionproduct_entity اطلاعات یافت نشد " };
+
+                /// promotionconfigID پر کردن متغییر با فیلد
+                /// promotionconfig   گرفتن آیدی انتیتی 
+                if (!(promotionproduct_entity.Contains("promotionconfig") && promotionproduct_entity["promotionconfig"] != null))
+                    return new ResultInfo { ResultStatus = ResultStatus.Error, Message = "اطلاعات فیلد promotionconfig ناقص است" };
+
+                Guid promotionconfigID = ((EntityReference)promotionproduct_entity["promotionconfig"]).Id;
+
+                //  promotionconfig  و آوردن گروه های روی  N_N ریتریو زدن روی       
+                QueryExpression query = new QueryExpression("promotionconfig_group");
+                query.ColumnSet = new ColumnSet(true);
+                query.Criteria.AddCondition("promotionconfigid", ConditionOperator.Equal, promotionconfigID);
+                EntityCollection PromotionConfigGroup = _service.RetrieveMultiple(query);
+
+                List<Guid> listOfGroupsId = new List<Guid>();
+
+                foreach (var item in PromotionConfigGroup.Entities)
+                    listOfGroupsId.Add(item.GetAttributeValue<Guid>("groupid"));
+
+
+                ///  وآوردن فیلد گروه groupconfigریتریو مالتیپل زدن روی 
+                QueryExpression query1 = new QueryExpression("groupconfig");
+                query1.ColumnSet = new ColumnSet("group");
+                EntityCollection groupconfig_Entities = _service.RetrieveMultiple(query1);
+
+                bool ResultFlag = false;
+                Guid Group_Id = Guid.Empty;
+                if (groupconfig_Entities != null && groupconfig_Entities.Entities != null)
+                    foreach (Entity entity in groupconfig_Entities.Entities)
+                    {
+                        Guid GroupId = ((EntityReference)entity["group"]).Id;
+                        if (listOfGroupsId.Contains(GroupId))
+                        {
+                            ResultFlag = true;
+                            Group_Id = GroupId;
+                            break;
+                        }
+                    }
+
+                Guid CustomerServiceID = Guid.Empty;
+                ///   از نوع پرسنلی است CustomerServiceProductID یعنی   ResultFlag==true اگر 
+                if (ResultFlag == true)
+                {
+                    // CustomerServiceProduct از CustomerServiceID  گرفتن 
+                    CustomerServiceID = ((EntityReference)CustomerServiceProduct_entity["customerservice"]).Id;
+
+                    ///پیدا کردن درخواست مرتبط
+                    QueryExpression query2 = new QueryExpression("new_hrrequest");
+                    query2.ColumnSet = new ColumnSet("new_customerservice", "new_requesttype", "statuscode", "new_customerserviceproduct");
+                    query2.Criteria.AddCondition("statuscode", ConditionOperator.Equal, 100000002);//Sended To Incharge
+                    query2.Criteria.AddCondition("new_customerservice", ConditionOperator.Equal, CustomerServiceID); 
+                    query2.Criteria.AddCondition("new_requesttype", ConditionOperator.Equal, 10);//TYPE = REQUEST FOR PERSONAL INTERNET SERVICE
+                    EntityCollection HrRequest_Entities = _service.RetrieveMultiple(query2);
+                    var HrRequest_Entity = HrRequest_Entities.Entities.FirstOrDefault();
+                    if (HrRequest_Entity != null)                       
+                        {
+                            Entity n = new Entity(HrRequest_Entity.LogicalName, HrRequest_Entity.Id);
+                            n["new_customerserviceproduct"] = new EntityReference("customerserviceproduct", CustomerServiceProductID);
+                            _service.Update(n);
+                        }
+                    ///پیدا کردن customerservicegroup
+                    QueryExpression query3 = new QueryExpression("customerservicegroup");
+                    query3.ColumnSet = new ColumnSet("customerservice", "statuscode", "statecode", "group");
+                    query3.Criteria.AddCondition("group", ConditionOperator.Equal, Group_Id);
+                    query3.Criteria.AddCondition("customerservice", ConditionOperator.Equal, CustomerServiceID);
+                    query3.Criteria.AddCondition("statecode", ConditionOperator.Equal,0);//Active
+
+
+                    EntityCollection CustomerServiceGroup_Entities = _service.RetrieveMultiple(query3);
+                    var CustomerServiceGroup_Entitiy = CustomerServiceGroup_Entities.Entities.FirstOrDefault();
+                    // customerservicegroup  دی اکتیو کردن 
+                    if (CustomerServiceGroup_Entitiy != null )                       
+                        {
+                        Entity entity2 = new Entity(CustomerServiceGroup_Entitiy.LogicalName, CustomerServiceGroup_Entitiy.Id);
+                            entity2["statecode"] = new OptionSetValue(1); //Status
+                            entity2["statuscode"] = new OptionSetValue(2); //Status reason
+                            _service.Update(entity2);
+                        }
+                    //دی اکتیو کردن HrRequest
+                    if (HrRequest_Entity != null)
+                        
+                        {
+                           Entity entity3 = new Entity(HrRequest_Entity.LogicalName, HrRequest_Entity.Id);
+                            entity3["statecode"] = new OptionSetValue(1); //Status
+                            entity3["statuscode"] = new OptionSetValue(2); //Status reason //Confiremedd                          
+                            _service.Update(entity3);
+                        }
+                }
+                return new ResultInfo { ResultStatus = ResultStatus.Success, Message = "باموفقیت انجام شد " };
+            }
+            catch (Exception ex)
+            {
+                return new ResultInfo { ResultStatus = ResultStatus.Error, Message = "Not succesfully: " + ex.ToString() };
+            }
+
+        }
+        public ResultInfo<string> InquiryCustomerService(string PhoneNumber)
+        {
+
+            try
+            {
+
+                bool Flag = false;
+                Guid CustomerServiceID = Guid.Empty;
+                QueryExpression query = new QueryExpression("customerservice");
+                query.ColumnSet = new ColumnSet("phonenumber", "sit", "customer");
+                query.Criteria.AddCondition("phonenumber", ConditionOperator.Equal, PhoneNumber);
+                query.Criteria.AddCondition("sit", ConditionOperator.NotEqual, 29);//انصراف از ثبت نام
+                query.Criteria.AddCondition("sit", ConditionOperator.NotEqual, 14);//جلوگیری از ثبت نام
+                query.Criteria.AddCondition("sit", ConditionOperator.NotEqual, 50);//قطع دائم
+                EntityCollection CustomerServiceEntities = _service.RetrieveMultiple(query);
+                InquiryCustomerServiceVM inquiryCustomerServiceVM = new InquiryCustomerServiceVM();
+                string inquiryCustomerServiceJSON = "";
+                if (CustomerServiceEntities.Entities.Count > 0)
+                {
+                    if (!(CustomerServiceEntities.Entities[0].Contains("customer") && CustomerServiceEntities.Entities[0]["customer"] != null))
+                         return new ResultInfo<string> { ResultStatus = ResultStatus.Error, Message = "اطلاعات فیلد customer ناقص است" };                 
+
+                    Flag = true;
+                    inquiryCustomerServiceVM.CustomerServiceID = CustomerServiceEntities.Entities[0].Id;
+                    inquiryCustomerServiceVM.CustomerID = CustomerServiceEntities.Entities[0].GetAttributeValue<EntityReference>("customer").Id;
+                    inquiryCustomerServiceVM.CustomerServiceName= CustomerServiceEntities.Entities[0].GetAttributeValue<string>("fullname");
+                    inquiryCustomerServiceVM.CustomerName = CustomerServiceEntities.Entities[0].GetAttributeValue<EntityReference>("customer").Name;
+                    inquiryCustomerServiceJSON = JsonConvert.SerializeObject(inquiryCustomerServiceVM);
+                }
+
+
+                return new ResultInfo<string>() { ResultStatus = ResultStatus.Success, Message = Flag.ToString(), Result = inquiryCustomerServiceJSON };
+            }
+            catch (Exception ex)
+            {
+                return new ResultInfo<string>() { ResultStatus = ResultStatus.Error, Message = ex.Message };
+            }
+        }
+        public ResultInfo<string> InquiryContact(string NationalId)
+        {
+
+            try
+            {
+
+                bool Flag = false;
+                Guid ContactID = Guid.Empty;
+                QueryExpression query = new QueryExpression("contact");
+                query.ColumnSet = new ColumnSet("nationalid", "fullname");
+                query.Criteria.AddCondition("nationalid", ConditionOperator.Equal, NationalId);
+                EntityCollection ContactEntities = _service.RetrieveMultiple(query);
+                InquiryCustomerVM inquiryCustomerVM = new InquiryCustomerVM();
+                string inquiryCustomerJSON = "";
+                if (ContactEntities.Entities.Count > 0)
+                {
+                    Flag = true;
+                    inquiryCustomerVM.CustomerID = ContactEntities.Entities[0].Id;
+                    inquiryCustomerVM.CustomerName= ContactEntities.Entities[0].GetAttributeValue<string>("fullname");
+                    inquiryCustomerJSON = JsonConvert.SerializeObject(inquiryCustomerVM);
+
+                }
+
+
+                return new ResultInfo<string>() { ResultStatus = ResultStatus.Success, Message = Flag.ToString(), Result = inquiryCustomerJSON };
+            }
+            catch (Exception ex)
+            {
+                return new ResultInfo<string>() { ResultStatus = ResultStatus.Error, Message = ex.Message };
+            }
+        }
+        public ResultInfo<string> CreateCustomerService(InquiryVM inquiryVM)
+        {
+            try
+            {
+                Entity NewCustomerService = new Entity("customerservice");
+                NewCustomerService["customer"] = new EntityReference("contact", inquiryVM.CsId);
+                NewCustomerService["city"] = new EntityReference("_city", inquiryVM.CityId);
+                NewCustomerService["phonenumber"] = inquiryVM.PhoneNumber;
+                NewCustomerService["serviceinfra"] = new EntityReference("_productserviceinfra", new Guid("{1B9FC978-EE5D-EA11-A94D-005056818579}"));
+                NewCustomerService["name"] = " نام ";
+                NewCustomerService["sit"] = new OptionSetValue(1);// ثبت نام -
+                Guid id = _service.Create(NewCustomerService);
+                return new ResultInfo<string>() { ResultStatus = ResultStatus.Success, Result = id.ToString() };
+            }
+            catch (Exception ex)
+            {
+                //LogExceptionBusiness.LogSP("CreateCustomerService", ex.Message);
+                return new ResultInfo<string>() { ResultStatus = ResultStatus.Error, Message = ex.Message };
+            }
+        }
+        
+    }
+    public class InquiryCustomerServiceVM
+    {
+        public Guid CustomerServiceID { get; set; }
+        public string CustomerServiceName { get; set; }
+        public Guid CustomerID { get; set; }
+        public string CustomerName { get; set; }
+        
+    }
+    public class InquiryCustomerVM
+    {
+        public Guid CustomerID { get; set; }
+        public string CustomerName { get; set; }
+    }
+    public class CustomerServiceGroupVM
+    {
+        public Guid Group { get; set; }
+        public string Group_Name { get; set; }
+    }
+    public class InquiryVM
+    {
+        public string PhoneNumber { get; set; }
+        public bool MVNO { get; set; }
+        public string OpratorId { get; set; }
+        public string PostalCode { get; set; }
+        //public LTEServiceType LTEServiceType { get; set; }
+        public Guid ServiceInfraId { get; set; }
+        public int ServiceInfraType { get; set; }
+        public Guid InquiryHistoryId { get; set; }
+        public Guid ProvinceId { get; set; }
+        public Guid CityId { get; set; }
+        public Guid CenterId { get; set; }
+        public Guid VirtualTelecomeCenterId { get; set; }
+        public int? InfrastructureProvider { get; set; }
+        public string MobileNumber { get; set; }
+        public string Province { get; set; }
+        public string City { get; set; }
+        public string Center { get; set; }
+        public string VirtualTelecomeCenter { get; set; }
+        public Guid CsId { get; set; }
+        public byte Status { get; set; }
+        public string Message { get; set; }
+        public int? DenyReason { get; set; }
+        public Guid CoverageId { get; set; }
+        public int CoverageTypeId { get; set; }
+        public Guid RuralDistrictId { get; set; }
+        public string RuralDistrict { get; set; }
+        public Guid ParishId { get; set; }
+        public int ParishIdInt { get; set; }
+        public string Parish { get; set; }
+        public Guid VillageId { get; set; }
+        public int VillageIdInt { get; set; }
+        public string Village { get; set; }
+        public Guid FCPProviderId { get; set; }
+        public string ShaskamMessage { get; set; }
+        public int Portal { get; set; }
+        public string CoverageName { get; set; }
+        public string NationalId { get; set; }
+}
+
+
